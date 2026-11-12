@@ -6,3 +6,5 @@ debug/
 ntfy_topic.txt
 titan/*.exe
 titan/build/
+titan/sdk/
+titan/*.obj
