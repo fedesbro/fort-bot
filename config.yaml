@@ -1,0 +1,186 @@
+# ═══════════════════════════════════════════════════════════════════
+#  CONFIGURAZIONE BOT
+#
+#  Giro di una partita:
+#    LOBBY: riconosce "gioca" → clic → parte il timer (casuale tra 10 e 14 minuti)
+#    IN PARTITA: nessuna schermata, conta solo il timer; intanto corre/cammina in tondo
+#    TEMPO SCADUTO: Esc → menu a tendina → clic → scheda "torna alla lobby" → clic
+#    → di nuovo in lobby → si ricomincia (loop).
+#  Sempre, in lobby come in partita: se compaiono male1 / male2 / token → notifica ntfy.
+# ═══════════════════════════════════════════════════════════════════
+
+monitor: 1              # schermo su cui gira il gioco (1 = principale)
+region: null            # null = tutto lo schermo, oppure [x, y, larghezza, altezza]
+templates_folder: templates
+
+confidence: 0.85        # somiglianza minima (0-1) per dire "schermata trovata"
+scales: [1.0]           # es. [0.9, 1.0, 1.1] se la risoluzione può cambiare (più lento)
+check_interval: 0.3     # secondi tra un controllo e l'altro
+start_delay: 3          # secondi di attesa prima di partire
+
+lost_grace: 1.0         # secondi senza riconoscere la schermata prima di fermare le sue azioni
+unknown_timeout: 60     # FUORI partita: se per X secondi nessuna schermata è riconosciuta → recovery
+max_repeats: 5          # se le azioni di una schermata si ripetono X volte senza effetto → recovery
+max_matches: null       # numero di partite dopo cui fermarsi (null = infinite)
+
+hotkeys:                # f1-f12, pause, insert, home, end
+  pause: f8
+  stop: f9
+
+# ───────────────────────────────────────────────────────────────────
+#  MOUSE E TASTIERA: SOLO driver TitanCSA Interceptor-Keyboard-Mouse (serve avvio come amministratore)
+#  Codici di scansione per i tasti, spostamenti relativi per il mouse.
+#  Tasti: w, s, a, d, shift, space, esc, enter, tab, up, down, f1... · Mouse: left, right, middle, mouse4, mouse5
+# ───────────────────────────────────────────────────────────────────
+titan:
+  keyboard: null         # id della tastiera secondo il driver Titan; null = la prima trovata
+  mouse: null            # id del mouse secondo il driver Titan; null = il primo trovato
+  cursor_mode: relative  # relative = come un mouse vero (consigliato); absolute = solo se nei menu
+                         #            del gioco il cursore non segue i movimenti relativi
+  keys: {}               # alias facoltativi, es. {salto: space, corsa: shift}
+
+# ───────────────────────────────────────────────────────────────────
+#  PARTITA: l'unica cosa che conta è il TIMER
+# ───────────────────────────────────────────────────────────────────
+match:
+  seconds: [600, 840]       # durata: casuale tra 10 e 14 minuti, nuova a ogni partita,
+                            # contata dal clic su "gioca"
+  start_moving_after: [8, 15]   # secondi dopo il clic prima di iniziare a correre (caricamento)
+  on_timeout:               # allo scadere: Esc, poi ci pensano le schermate qui sotto
+    - key: esc
+    - wait_for: btn_menu.png
+      timeout: 5
+  retry_every: [6, 10]      # se dopo l'Esc il menu non compare, riprova dopo X secondi
+  actions:                  # cosa fa per tutta la partita (fino allo scadere del tempo)
+    - circle:               # in tondo SENZA fermarsi: W sempre premuto, Shift per correre
+        run:  {weight: 6, seconds: [8, 20]}    # tratti di corsa
+        walk: {weight: 2, seconds: [4, 9]}     # tratti di camminata (rilascia solo Shift)
+        jump_chance: 0.03         # salti al secondo (in media uno ogni ~30 s)
+        stop_chance: 0.01         # al secondo: si ferma un attimo (in media ogni ~100 s)...
+        stop_seconds: [0.3, 1.0]  # ...per così tanto
+
+# ───────────────────────────────────────────────────────────────────
+#  CORSA IN TONDO (diametro massimo 6 m)
+#  A inizio partita il bot fissa il centro del cerchio; poi, sapendo quanto ha girato la
+#  visuale e a che velocità va il personaggio, stima dove si trova e corregge le passate
+#  della mano per restare sul cerchio. Servono tre numeri del TUO gioco:
+#    mouse_counts_per_360: conteggi del mouse per un giro completo della visuale
+#                          → misuralo con:  python calibra_giro.py
+#    run_speed / walk_speed: velocità del personaggio in m/s (corsa con Shift, camminata)
+#  Diametro nominale = max_diameter × radius_fill (6 × [0.6, 0.74] → tra 3,6 e 4,4 m).
+#  Il margine serve: in simulazione, con i valori tarati, in 12 minuti il personaggio resta
+#  dentro ~4,7 m; se la velocità reale è sbagliata del 10-20% arriva a ~6 m.
+# ───────────────────────────────────────────────────────────────────
+movement:
+  max_diameter: 6.0          # metri
+  radius_fill: [0.6, 0.74]   # frazione del massimo usata a ogni partita
+  mouse_counts_per_360: 2000 # DA TARARE con calibra_giro.py
+  run_speed: 6.0             # m/s DA TARARE
+  walk_speed: 3.0            # m/s DA TARARE
+  accel_time: 0.1            # s: quanto il personaggio impiega a cambiare velocità
+  jump_key: space
+  regrip_chance: 0.012       # al secondo: rilascio brevissimo di un tasto per riassestare il dito
+
+# ───────────────────────────────────────────────────────────────────
+#  SCHERMATE FUORI PARTITA (in ordine di PRIORITÀ: la prima trovata vince)
+#  Template da creare (python cattura_template.py <nome>):
+#    gioca.png            il bottone "gioca" in lobby
+#    btn_menu.png         il bottone del menu a tendina che si apre con Esc
+#    btn_torna_lobby.png  il pulsante di ritorno alla lobby nella scheda
+# ───────────────────────────────────────────────────────────────────
+states:
+
+  # Scheda con il pulsante di ritorno alla lobby: chiude la partita
+  - name: scheda_lobby
+    template: btn_torna_lobby.png
+    ends_match: true
+    actions:
+      - click: self
+      - wait_gone: btn_torna_lobby.png
+        timeout: 10
+    cooldown: [1.5, 2.5]
+
+  # Menu a tendina aperto con Esc: si clicca il bottone per arrivare alla scheda
+  - name: menu_tendina
+    template: btn_menu.png
+    actions:
+      - click: self
+      - wait_for: btn_torna_lobby.png
+        timeout: 5
+    cooldown: [0.8, 1.5]
+
+  # Lobby: clic su "gioca" → parte il timer della partita
+  - name: lobby
+    template: gioca.png
+    starts_match: true
+    actions:
+      - click: self
+      - wait_gone: gioca.png        # conferma che il clic ha funzionato
+        timeout: 20
+    cooldown: [1, 2]
+
+# Azioni di emergenza FUORI partita, quando il bot non capisce dove si trova
+recovery:
+  - key: esc
+  - wait: 2
+
+# ───────────────────────────────────────────────────────────────────
+#  AVVISI: se una di queste immagini compare sullo schermo → notifica ntfy
+#  (una notifica per comparsa; se resta visibile non ne manda altre)
+# ───────────────────────────────────────────────────────────────────
+alerts:
+  every: 1.0          # secondi tra un controllo e l'altro
+  cooldown: 60        # la stessa immagine non notifica più di una volta ogni X secondi
+  templates:
+    - template: male1.png
+      title: "male1 sullo schermo"
+      priority: 4
+      tags: [warning]
+    - template: male2.png
+      title: "male2 sullo schermo"
+      priority: 4
+      tags: [warning]
+    - template: token.png
+      title: "Token sullo schermo"
+      priority: 4
+      tags: [coin]
+
+# ───────────────────────────────────────────────────────────────────
+#  NOTIFICHE SUL TELEFONO (app ntfy) – topic in ntfy_topic.txt
+#  Chiunque conosca il nome del topic può leggerne le notifiche: tienilo per te.
+#  Prova:  python notifiche.py
+# ───────────────────────────────────────────────────────────────────
+notifications:
+  enabled: true
+  server: https://ntfy.sh
+  topic: ""               # vuoto = letto da ntfy_topic.txt (escluso da git) o dalla variabile NTFY_TOPIC
+  events:                  # true/false per ogni tipo di notifica
+    alert: true            # male1 / male2 / token sullo schermo
+    start: true            # bot avviato
+    stop: true             # bot fermato, con il riepilogo delle partite
+    match_end: true        # fine di ogni partita (durata)
+    problem: true          # recovery, uscita dalla partita che non riesce, errore che ferma il bot
+  throttle: 300            # problem: al massimo una notifica ogni X secondi
+
+# ───────────────────────────────────────────────────────────────────
+#  INPUT UMANI
+#  Ovunque in questo file un numero può essere scritto come range [min, max]:
+#  ogni volta viene estratto un valore a caso. I numeri fissi variano di ±jitter.
+#  I tempi (reazione, tasti, clic) hanno la distribuzione asimmetrica dei tempi umani.
+# ───────────────────────────────────────────────────────────────────
+human:
+  enabled: true              # false = movimenti istantanei e tempi esatti (solo per prove)
+  jitter: 0.15               # variazione ±15% sui valori fissi
+  mouse_hz: 500              # report del mouse al secondo (come un mouse a 500 Hz)
+  reaction: [0.18, 0.55]     # secondi di "reazione" prima di cliccare / premere
+  mouse_speed: [900, 1700]   # velocità media del cursore in pixel/secondo
+  curve: 0.2                 # quanto è curva la traiettoria (0 = dritta)
+  overshoot_chance: 0.25     # probabilità di superare un po' il bottone e correggere
+  click_spread: 0.3          # quanto il punto di clic si allontana dal centro del bottone
+  point_spread: 3            # pixel di variazione per i clic su coordinate fisse
+  click_hold: [0.065, 0.14]  # durata di un clic
+  double_click_gap: [0.08, 0.16]
+  key_hold: [0.06, 0.13]     # durata della pressione di un tasto
+  between_keys: [0.03, 0.14] # tra un tasto e l'altro di una combinazione
+  typing: [0.07, 0.22]       # tra un carattere e l'altro quando scrive
+  look_time: [0.15, 0.35]    # durata di un "look" se non specificata
